@@ -14,9 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -123,39 +121,66 @@ public class JasperReportVariableExtractorService {
             jasperDesign.addParameter(parameter);
         }
     }
+
+  public static String getExpressionText(String text, Set<String> variables) {
+      if (variables == null || variables.isEmpty()) {
+          return "\"" + text.replace("\"", "\\\"") + "\"";
+      }
+      return transformToJasperExpression(text);
+  }
     public static String transformToJasperExpression(String htmlContent) {
+        // Diviser le contenu en segments: texte et variables
+        List<String> segments = new ArrayList<>();
         Pattern pattern = Pattern.compile("\\$(\\{[^}]+\\}|[a-zA-Z_][a-zA-Z0-9_]*)");
         Matcher matcher = pattern.matcher(htmlContent);
-        StringBuffer sb = new StringBuffer();
 
+        int lastEnd = 0;
         while (matcher.find()) {
-            try {
-                String var = matcher.group(1);
-                String cleanVar = var.startsWith("{") && var.endsWith("}")
-                        ? var.substring(1, var.length() - 1)
-                        : var;
+            // Ajouter le texte avant la variable si non vide
+            if (matcher.start() > lastEnd) {
+                segments.add("TEXT:" + htmlContent.substring(lastEnd, matcher.start()));
+            }
+            // Ajouter la variable
+            String var = matcher.group(1);
+            String cleanVar = var.startsWith("{") && var.endsWith("}")
+                    ? var.substring(1, var.length() - 1)
+                    : var;
+            segments.add("VAR:" + cleanVar);
+            lastEnd = matcher.end();
+        }
 
-                logger.debug("Variable nettoyée: {}", cleanVar);
-                String safeReplacement = Matcher.quoteReplacement("\" + $P{" + cleanVar + "} + \"");
-                matcher.appendReplacement(sb, safeReplacement);
-            } catch (Exception e) {
-                logger.error("Erreur lors du traitement de la variable: {}", matcher.group(), e);
-                matcher.appendReplacement(sb, matcher.group());
+        // Ajouter le texte restant
+        if (lastEnd < htmlContent.length()) {
+            segments.add("TEXT:" + htmlContent.substring(lastEnd));
+
+        }
+
+        // Construire l'expression CDATA
+        StringBuilder expression = new StringBuilder();
+
+        for (int i = 0; i < segments.size(); i++) {
+            String segment = segments.get(i);
+
+            if (segment.startsWith("TEXT:")) {
+                String text = segment.substring(5);
+                if (!text.isEmpty()) {
+                    if (expression.length() > 0) {
+                        expression.append(" + ");
+                    }
+                    expression.append("\"").append(text.replace("\"", "\\\"")).append("\"");
+                }
+            } else if (segment.startsWith("VAR:")) {
+                String varName = segment.substring(4);
+                if (expression.length() > 0) {
+                    expression.append(" + ");
+                }
+                expression.append("$P{").append(varName).append("}");
             }
         }
-        matcher.appendTail(sb);
 
-        String result = sb.toString();
+        String result = expression.toString();
         logger.debug("Expression Jasper finale: {}", result);
-        return "\"" + result + "\"";
-    }
-
-
-    public static String getExpressionText(String text, Set<String> variables) {
-        if (variables == null || variables.isEmpty()) {
-            return "\"" + text.replace("\"", "\\\"") + "\"";
-        }
-        return transformToJasperExpression(text);
+        return result;
     }
 
 }

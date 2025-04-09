@@ -20,6 +20,7 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 @Service
@@ -28,9 +29,15 @@ public class CssService {
     private static int idCounter = 1;
     private Map<String, Map<String, String>> cssRules;
     private String basePath;
+    private static final Set<String> BORDER_PROPERTIES = Set.of(
+            "border", "border-top", "border-right", "border-bottom", "border-left",
+            "border-width", "border-style", "border-color",
+            "border-top-width", "border-top-style", "border-top-color",
+            "border-right-width", "border-right-style", "border-right-color",
+            "border-bottom-width", "border-bottom-style", "border-bottom-color",
+            "border-left-width", "border-left-style", "border-left-color"
+    );
 
-    // Extrait les styles CSS internes d'un document HTML.
-    //Parcourt les balises <style> du document, récupère leur contenu CSS et le transmet pour analyse.
     void extractInternalCss(Document doc) {
         logger.info("Extraction des styles CSS internes...");
         Elements styleElements = doc.select("style");
@@ -41,48 +48,54 @@ public class CssService {
 
                 parseCssContent(cssContent);
             }else {
-                logger.info("Styles CSS internes non trouvées");
+                logger.warn("Styles CSS internes non trouvées");
             }
 
         }
 
     }
    // Parse le contenu CSS, identifie les sélecteurs et leurs propriétés et les stocke dans une map (cssRules)
-    private void parseCssContent(String cssContent) {
-        try {
-            CSSOMParser parser = new CSSOMParser();
-            InputSource source = new InputSource(new StringReader(cssContent));
-            CSSStyleSheetImpl stylesheet = (CSSStyleSheetImpl) parser.parseStyleSheet(source, null, null);
+   private void parseCssContent(String cssContent) {
+       try {
+           CSSOMParser parser = new CSSOMParser();
+           InputSource source = new InputSource(new StringReader(cssContent));
+           CSSStyleSheetImpl stylesheet = (CSSStyleSheetImpl) parser.parseStyleSheet(source, null, null);
 
-            CSSRuleList ruleList = stylesheet.getCssRules();
-            for (int i = 0; i < ruleList.getLength(); i++) {
-                CSSRule rule = ruleList.item(i);
-                if (rule instanceof CSSStyleRule) {
-                    CSSStyleRule styleRule = (CSSStyleRule) rule;
-                    String selectorText = styleRule.getSelectorText();
-                    logger.info("CSSRule: " + rule.getCssText());
+           CSSRuleList ruleList = stylesheet.getCssRules();
+           for (int i = 0; i < ruleList.getLength(); i++) {
+               CSSRule rule = ruleList.item(i);
+               if (rule instanceof CSSStyleRule) {
+                   CSSStyleRule styleRule = (CSSStyleRule) rule;
+                   String selectorText = styleRule.getSelectorText();
+                   logger.info("CSSRule: " + rule.getCssText());
 
+                   for (String selector : selectorText.split(",")) {
+                       selector = selector.trim();
+                       if (!selector.isEmpty()) {
+                           CSSStyleDeclaration styleDeclaration = styleRule.getStyle();
 
-                    for (String selector : selectorText.split(",")) {
-                        selector = selector.trim();
-                        if (!selector.isEmpty()) {
-                            CSSStyleDeclaration styleDeclaration = styleRule.getStyle();
-                            Map<String, String> properties = new HashMap<>();
-                            for (int j = 0; j < styleDeclaration.getLength(); j++) {
-                                String propertyName = styleDeclaration.item(j);
-                                String propertyValue = styleDeclaration.getPropertyValue(propertyName);
-                                properties.put(propertyName, propertyValue);
-                            }
-                            cssRules.put(selector, properties);
-                            logger.info("Règle CSS trouvée pour le sélecteur: " + selector);
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.info("Erreur lors du parsing du CSS : " + e.getMessage(), e, Level.WARNING);
-        }
-    }
+                           // Récupérer les propriétés existantes ou créer une nouvelle map
+                           Map<String, String> properties = cssRules.getOrDefault(selector, new HashMap<>());
+
+                           // Ajouter les nouvelles propriétés
+                           for (int j = 0; j < styleDeclaration.getLength(); j++) {
+                               String propertyName = styleDeclaration.item(j);
+                               String propertyValue = styleDeclaration.getPropertyValue(propertyName);
+                               properties.put(propertyName, propertyValue);
+                           }
+
+                           // Mettre à jour cssRules avec les propriétés fusionnées
+                           cssRules.put(selector, properties);
+                           logger.info("Règle CSS trouvée pour le sélecteur: " + selector);
+
+                       }
+                   }
+               }
+           }
+       } catch (Exception e) {
+           logger.warn("Erreur lors du parsing du CSS : " + e.getMessage(), e, Level.WARNING);
+       }
+   }
         // * Extrait les styles CSS externes d'un document HTML.
         // * Recherche les balises <link> ayant l'attribut rel="stylesheet",
         // * charge le contenu des fichiers CSS associés, et les transmet pour analyse.
@@ -96,10 +109,10 @@ public class CssService {
                     String cssContent = loadExternalCss(href);
                     if (cssContent != null && !cssContent.isEmpty()) {
                         parseCssContent(cssContent);
-                        logger.info("CSS externe chargé depuis: " + href);
+                        logger.debug("CSS externe chargé depuis: " + href);
                     }
                 }catch (Exception e) {
-                    logger.info("Impossible de charger le CSS externe: " + href, e, Level.WARNING);
+                    logger.warn("Impossible de charger le CSS externe: " + href, e, Level.WARNING);
                 }
             }
         }
@@ -116,11 +129,11 @@ public class CssService {
             try {
                 return new String(Files.readAllBytes(path));
             } catch (IOException e) {
-                logger.info("Fichier CSS non trouvé: " + path,e,Level.WARNING);
+                logger.warn("Fichier CSS non trouvé: " + path,e,Level.WARNING);
                 throw e;
             }
         } else {
-            logger.info("Fichier CSS inexistant: " + path,Level.WARNING);
+            logger.warn("Fichier CSS inexistant: " + path,Level.WARNING);
             throw new IOException("Le fichier CSS n'existe pas: " + path);
         }
 
@@ -136,16 +149,16 @@ public class CssService {
         for (Element element : elementsWithStyle) {
             String style = element.attr("style");
             if ( !style.isEmpty()) {
-                logger.info("Style en ligne trouvé : " + style);
-
                 String elementId = element.id();
                 if (elementId.isEmpty()) {
                     elementId = generateElementId(element);
                     element.attr("id", elementId);
                 }
-                Map<String, String> properties = parseInlineStyle(style);
 
-                logger.info(" Propriétés extraites:");
+                Map<String, String> properties = cssRules.getOrDefault("#" + elementId, new HashMap<>());
+                Map<String, String> inlineproperties = parseInlineStyle(style);
+                properties.putAll(inlineproperties);
+
                 for (Map.Entry<String, String> entry : properties.entrySet()) {
                     logger.info("  - " + entry.getKey() + ": " + entry.getValue());
                 }
@@ -199,18 +212,16 @@ public class CssService {
         extractExternalCss(doc);
         extractInternalCss(doc);
         extractInlineCss(doc);
-
+        logger.info("Contenu final de cssRules :");
+        for (Map.Entry<String, Map<String, String>> entry : cssRules.entrySet()) {
+            logger.info("Sélecteur : " + entry.getKey());
+            for (Map.Entry<String, String> prop : entry.getValue().entrySet()) {
+                logger.info("  - " + prop.getKey() + ": " + prop.getValue());
+            }
+        }
         // Retourner toutes les règles CSS extraites
         return this.cssRules;
     }
-    /**
-     * Récupère les styles CSS explicitement définis sur un élément HTML.
-     * Cela inclut uniquement les styles définis directement via l'attribut 'style'
-     * ou par des règles CSS ciblant spécifiquement cet élément.
-     *
-     * @param element L'élément HTML pour lequel récupérer les styles explicites
-     * @return Une Map contenant les paires propriété/valeur des styles explicitement définis
-     */
     public Map<String, String> getExplicitStyles(Element element) {
         validateCssRules();
         Map<String, String> explicitStyles = new HashMap<>();
@@ -233,15 +244,19 @@ public class CssService {
         }
         return explicitStyles;
     }
+
     public Map<String, String> getComputedStyles(Element element) {
         validateCssRules();
 
         Map<String, String> computedStyles = new HashMap<>();
 
-        applyMatchingRules(computedStyles, element);
-
+        // Appliquer d'abord les styles hérités
         computedStyles = applyInheritedStyles(computedStyles, element);
 
+        // Ensuite appliquer les règles CSS correspondantes à l'élément
+        applyMatchingRules(computedStyles, element);
+
+        // Enfin, appliquer les styles inline qui ont la priorité la plus élevée
         addInlineStyles(computedStyles, element);
 
         return computedStyles;
@@ -261,44 +276,78 @@ public class CssService {
      * 4. Enfin, on applique les règles CSS pour les sélecteurs complexes, qui peuvent être plus spécifiques et dépendent des relations contextuelles entre les éléments.
      */
     private void applyMatchingRules(Map<String, String> styles, Element element) {
-        List<String> complexSelectors = cssRules.keySet().stream()
-                .filter(selector ->
-                        selector.contains(" ") ||
-                                selector.contains(">") ||
-                                selector.contains("+") ||
-                                selector.contains("~")
-                )
-                .collect(Collectors.toList());
+        // Séparer les sélecteurs simples des sélecteurs complexes
+        Map<String, Map<String, String>> simpleRules = new HashMap<>();
+        Map<String, Map<String, String>> complexRules = new HashMap<>();
 
-        // 1. Appliquer les règles par tag
-        String tagName = element.tagName().toLowerCase();
-        applyRuleIfExists(styles, tagName);
-
-        // 2. Appliquer les règles par classe
-        String classNames = element.className();
-        if (!classNames.isEmpty()) {
-            for (String className : classNames.split("\\s+")) {
-                applyRuleIfExists(styles, "." + className);
+        for (Map.Entry<String, Map<String, String>> entry : cssRules.entrySet()) {
+            String selector = entry.getKey();
+            if (selector.contains(" ") || selector.contains(">") ||
+                    selector.contains("+") || selector.contains("~") ||
+                    selector.contains(":")) {
+                complexRules.put(selector, entry.getValue());
+            } else {
+                simpleRules.put(selector, entry.getValue());
             }
         }
 
-        // 3. Appliquer les règles par ID
+        // Appliquer les règles par spécificité croissante
+
+        // 1. Appliquer les règles par tag (moins spécifiques)
+        String tagName = element.tagName().toLowerCase();
+        if (simpleRules.containsKey(tagName)) {
+            styles.putAll(simpleRules.get(tagName));
+        }
+
+        // 2. Appliquer les règles par classe (spécificité moyenne)
+        String classNames = element.className();
+        if (!classNames.isEmpty()) {
+            for (String className : classNames.split("\\s+")) {
+                String classSelector = "." + className;
+                if (simpleRules.containsKey(classSelector)) {
+                    styles.putAll(simpleRules.get(classSelector));
+                }
+            }
+        }
+
+        // 3. Appliquer les règles par ID (plus spécifiques)
         String id = element.id();
         if (!id.isEmpty()) {
-            applyRuleIfExists(styles, "#" + id);
+            String idSelector = "#" + id;
+            if (simpleRules.containsKey(idSelector)) {
+                styles.putAll(simpleRules.get(idSelector));
+            }
         }
 
         // 4. Appliquer les règles contextuelles complexes
-        for (String selector : complexSelectors) {
+        // Trouver l'élément dans le document pour avoir accès au contexte complet
+        Document doc = element.ownerDocument();
+
+        // Pour chaque sélecteur complexe
+        for (Map.Entry<String, Map<String, String>> entry : complexRules.entrySet()) {
+            String selector = entry.getKey();
+            Map<String, String> properties = entry.getValue();
+
             try {
-                Elements matchingElements = element.ownerDocument().select(selector);
-                if (matchingElements.contains(element)) {
-                    applyRuleIfExists(styles, selector);
+
+                Elements matchingElements = doc.select(selector);
+
+                // Vérifier si notre élément est dans les résultats
+                for (Element matchedElement : matchingElements) {
+                    if (matchedElement.equals(element)) {
+                        // Si l'élément correspond, appliquer les propriétés
+                        styles.putAll(properties);
+                        logger.info("Appliqué règle complexe: {} à l'élément {}", selector, element.cssSelector());
+                        break;
+                    }
                 }
             } catch (Exception e) {
                 logger.warn("Erreur lors de l'évaluation du sélecteur complexe '{}': {}", selector, e.getMessage());
             }
         }
+
+        // Journaliser les styles appliqués pour le débogage
+        logger.debug("Styles calculés pour {}: {}", element.cssSelector(), styles);
     }
     private void applyRuleIfExists(Map<String, String> styles, String selector) {
         Map<String, String> ruleProperties = cssRules.get(selector);
@@ -308,14 +357,42 @@ public class CssService {
     }
     private Map<String, String> applyInheritedStyles(Map<String, String> originalStyles, Element element) {
         Map<String, String> styles = new HashMap<>(originalStyles);
+
+        // Liste de propriétés qui se transmettent par héritage
+        Set<String> inheritableProperties = Set.of(
+                "color", "font-family", "font-size", "font-weight", "font-style",
+                "line-height", "letter-spacing", "text-align", "text-indent",
+                "text-transform", "white-space", "word-spacing", "visibility","font","text-shadow"
+
+        );
+
         Element parent = element.parent();
-        while (parent != null) {
-            Map<String, String> parentStyles = getComputedStyles(parent);
-            styles.putAll(parentStyles);
-            parent = parent.parent();
+        if (parent != null) {
+
+            Map<String, String> parentDirectStyles = new HashMap<>();
+
+            applyMatchingRules(parentDirectStyles, parent);
+
+            addInlineStyles(parentDirectStyles, parent);
+
+            parentDirectStyles.keySet().retainAll(inheritableProperties);
+
+            for (Map.Entry<String, String> entry : parentDirectStyles.entrySet()) {
+                if (!styles.containsKey(entry.getKey())) {
+                    styles.put(entry.getKey(), entry.getValue());
+                }
+            }
+            Element grandparent = parent.parent();
+            if (grandparent != null) {
+
+                Map<String, String> tempStyles = new HashMap<>(styles);
+                styles.putAll(applyInheritedStyles(tempStyles, parent));
+            }
         }
         return styles;
     }
+
+
     private void addInlineStyles(Map<String, String> styles, Element element) {
         String inlineStyle = element.attr("style");
         if (!inlineStyle.isEmpty()) {
@@ -323,6 +400,7 @@ public class CssService {
             styles.putAll(inlineProperties);
         }
     }
-}
 
+
+}
 

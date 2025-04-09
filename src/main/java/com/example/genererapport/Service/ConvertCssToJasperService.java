@@ -4,6 +4,7 @@ import com.example.genererapport.Model.ColorExtraction;
 import net.sf.jasperreports.engine.JRLineBox;
 import net.sf.jasperreports.engine.JRPen;
 import net.sf.jasperreports.engine.design.JRDesignFrame;
+import net.sf.jasperreports.engine.design.JRDesignStaticText;
 import net.sf.jasperreports.engine.design.JRDesignTextField;
 import net.sf.jasperreports.engine.type.*;
 import org.slf4j.Logger;
@@ -913,6 +914,40 @@ public class ConvertCssToJasperService {
             pen.setLineWidth(width);
             pen.setLineStyle(style);
             pen.setLineColor(color);
+        }
+    }
+
+    public void applyJasperAttribute(JRDesignStaticText staticText,String attribute, String value) {
+        try {
+            switch (attribute) {
+                case "fontName":
+                    staticText.setFontName(value);
+                    break;
+                case "fontSize":
+                  staticText.setFontSize(Float.parseFloat(value));
+                    break;
+                case "isBold":
+                   staticText.setBold(Boolean.parseBoolean(value));
+                    break;
+                case "isItalic":
+                   staticText.setItalic(Boolean.parseBoolean(value));
+                    break;
+                case "isUnderline":
+                   staticText.setUnderline(Boolean.parseBoolean(value));
+                    break;
+                case "isStrikeThrough":
+                   staticText.setStrikeThrough(Boolean.parseBoolean(value));
+                    break;
+                case "forecolor":
+                   staticText.setForecolor(Color.decode(value));
+                    break;
+                case "backcolor":
+                   staticText.setBackcolor(Color.decode(value));
+                   staticText.setMode(ModeEnum.OPAQUE);
+                    break;
+    }
+        } catch (Exception e) {
+            logger.error("Erreur lors de l'application de l'attribut {} : {}", attribute, e.getMessage(), e);
         }
     }
 }

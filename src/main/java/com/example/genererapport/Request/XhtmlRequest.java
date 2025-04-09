@@ -14,6 +14,9 @@ public class XhtmlRequest {
     @JsonProperty("basePath")
     private String basePath;
 
+    @JsonProperty("selector")
+    private String selector;
+
     @JsonProperty("parameters")
     private Map<String, Parameter> parameters;
 

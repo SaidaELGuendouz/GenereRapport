@@ -47,6 +47,8 @@ public class RapportService {
     private String BandType;
     private Map<String, String> BandStyles;
     @Autowired
+    private BorderManagementService borderService;
+    @Autowired
     private JasperReportVariableExtractorService jasperReportVariableExtractorService;
     @Autowired
     private CssService cssService;
@@ -69,7 +71,7 @@ public class RapportService {
             jasperDesign = JRXmlLoader.load(new ByteArrayInputStream(jrxmlContent.getBytes(StandardCharsets.UTF_8)));
             jasperReportVariableExtractorService.initialize(parameters, jasperDesign);
             logger.debug("JasperDesign initialisé avec succès");
-            //   processBand("title", this::createTitleBand, doc);
+             processBand("title", this::createTitleBand, doc);
             processBand("pageheader", this::createPageHeaderBand, doc);
             processBand("footer", this::createFooterBand, doc);
             createDetailBand(doc);
@@ -94,6 +96,117 @@ public class RapportService {
             BandStyles = null;
         } else {
             logger.warn("Aucun élément {} trouvé dans le document", tagName);
+        }
+    }
+    private void createTitleBand(Element element) {
+        logger.info("Création de la bande de titre à partir de l'élément: {}", element.tagName());
+        JRDesignBand titleBand = new JRDesignBand();
+        int bandHeight = jasperReportService.calculateBandHeight(element, "title");
+        titleBand.setHeight(bandHeight);
+        String innerHtml = element.html();
+        logger.debug("Contenu HTML original: {}", innerHtml);
+
+        boolean processed = false;
+
+        // Cas 1: HTML échappé détecté
+        if (innerHtml.contains("&lt;") || innerHtml.contains("&gt;")) {
+            logger.debug("Contenu HTML échappé détecté dans title, tentative de correction");
+
+            try {
+                String unescaped = innerHtml
+                        .replace("&lt;", "<")
+                        .replace("&gt;", ">")
+                        .replace("&amp;", "&")
+                        .replace("&quot;", "\"")
+                        .replace("&apos;", "'");
+
+                logger.info("Contenu après remplacement manuel: {}", unescaped);
+
+                Document tempDoc = Jsoup.parse("<wrapper>" + unescaped + "</wrapper>");
+                Element wrapper = tempDoc.select("wrapper").first();
+
+                if (wrapper != null && wrapper.children().size() > 0) {
+                    Elements extractedElements = wrapper.children();
+                    logger.info("Éléments extraits: {}", extractedElements.outerHtml());
+
+                    // Continuer avec ces éléments
+                    for (Element extracted : extractedElements) {
+                        logger.debug("Traitement de l'élément: {}", extracted.tagName());
+
+                        // Calculer les styles pour cet élément
+                        Map<String, String> computedStyles = cssService.getComputedStyles(extracted);
+
+                        // Traiter l'élément avec ses styles
+                        processElement(extracted, titleBand, "title", computedStyles);
+                    }
+                    processed = true;
+                }
+            } catch (Exception e) {
+                logger.warn("Erreur lors de la correction du contenu HTML: " + e.getMessage(), e);
+            }
+        }
+
+        // Cas 2: HTML non échappé mais contenant des éléments HTML
+        else if (!element.children().isEmpty()) {
+            logger.debug("Éléments HTML directs trouvés dans le titre");
+            processChildElements(element, titleBand, "title");
+            processed = true;
+        }
+
+        // Cas 3: Texte simple sans HTML
+        else if (!element.text().trim().isEmpty()) {
+            logger.debug("Texte simple trouvé dans le titre: {}", element.text());
+
+            // Créer un élément de texte statique
+            JRDesignStaticText staticText = new JRDesignStaticText();
+            staticText.setText(element.text());
+
+            // Appliquer les styles
+            Map<String, String> styles = cssService.getComputedStyles(element);
+            applyTextStyles(staticText, styles);
+            Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, styles);
+
+            // Positionner l'élément
+            staticText.setX(position.get("x"));
+            staticText.setY(position.get("y"));
+            staticText.setWidth(position.get("width"));
+            staticText.setHeight(position.get("height"));
+
+            titleBand.addElement(staticText);
+            processed = true;
+        }
+        // Cas 4: Aucun contenu trouvé
+        if (!processed) {
+            logger.debug("Aucun contenu trouvé ou traité, utilisation du traitement standard");
+            processChildElements(element, titleBand, "title");
+        }
+        try {
+            jasperDesign.setTitle(titleBand);
+            logger.debug("Bande de titre ajoutée au design Jasper");
+        } catch (Exception e) {
+            throw new RuntimeException("Erreur lors de la création du titre: " + e.getMessage(), e);
+        }
+    }
+
+    private void applyTextStyles(JRDesignStaticText staticText, Map<String, String> styles) {
+        if (staticText == null || styles == null || styles.isEmpty()) {
+            logger.debug("Aucun style à appliquer");
+            return;
+        }
+
+        for (Map.Entry<String, String> style : styles.entrySet()) {
+            try {
+                Map.Entry<String, String> jasperAttribute =
+                        convertCssToJasperService.convertCssToJasperAttribute(style.getKey(), style.getValue());
+
+                if (jasperAttribute != null) {
+                    convertCssToJasperService.applyJasperAttribute(staticText, jasperAttribute.getKey(), jasperAttribute.getValue());
+                } else {
+                    logger.warn("Style ignoré  : {} = {}", style.getKey(), style.getValue());
+                }
+            } catch (Exception e) {
+                logger.error("Erreur lors de l'application du style {} : {}", style.getKey(), e.getMessage());
+            }
         }
     }
 
@@ -138,6 +251,8 @@ public class RapportService {
             logger.warn("Aucun élément trouvé pour la bande de détails après exclusion");
             return;
         }
+        Elements divs = bodyElements.select("div");
+        logger.info("Nombre de divs trouvés dans detail: {}", divs.size());
 
         BandType = "detail";
         int totalBandHeight = 0;
@@ -145,6 +260,7 @@ public class RapportService {
 
         for (Element element : bodyElements) {
             try {
+
                 BandStyles = cssService.getComputedStyles(element);
                 Map<String, String> mergedStyles = new HashMap<>(parentStyles);
                 mergedStyles.putAll(BandStyles);
@@ -185,9 +301,10 @@ public class RapportService {
 
     private void processElement(Element element, JRDesignBand band, String bandType, Map<String, String> computedStyles) {
         String tagName = element.tagName().toLowerCase();
-
-
         switch (tagName) {
+            case "label":
+                processStaticTextElement(element, band, bandType, computedStyles);
+                break;
             case "span":
             case "p":
                 processTextElement(element, band, bandType, computedStyles);
@@ -197,8 +314,10 @@ public class RapportService {
                 break;
             case "div":
                 if (isTextOnlyDiv(element)) {
+                    logger.info("Traitement comme élément texte (div)");
                     processTextElement(element, band, bandType, computedStyles);
                 } else {
+                    logger.info("Traitement comme conteneur (div)");
                     processContainerElement(element, band, bandType, computedStyles);
                 }
                 break;
@@ -257,6 +376,23 @@ public class RapportService {
         }
         band.addElement(frame);
     }
+    private void processStaticTextElement(Element element, JRDesignBand band, String bandType, Map<String, String> computedStyles) {
+        JRDesignStaticText staticText = new JRDesignStaticText();
+
+        String text = element.text();
+        staticText.setText(text);
+        Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, computedStyles);
+
+        staticText.setX(position.get("x"));
+        staticText.setY(position.get("y"));
+        staticText.setWidth(position.get("width"));
+        staticText.setHeight(position.get("height"));
+
+        applyTextStyles(staticText, computedStyles);
+
+        band.addElement(staticText);
+
+    }
 
 
     private void processElement(Element element, JRDesignBand band, String bandType, Map<String, String> computedStyles, boolean isHeader) {
@@ -310,13 +446,10 @@ public class RapportService {
         }
 
         Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, mergedStyles);
-
         JRDesignExpression expression = new JRDesignExpression();
-        logger.info("Texte extrait : {}", element.text());
         String sanitizedText = sanitizeText(element.text());
-        logger.info("Texte sans quotes : {}", sanitizedText);
         expression.setText(JasperReportVariableExtractorService.getExpressionText(sanitizedText, variables));
-        logger.info("Expression : {}", expression.getText());
+
         textField.setExpression(expression);
         textField.setStretchWithOverflow(true);
 
@@ -389,14 +522,20 @@ public class RapportService {
     }
 
     private boolean isTextOnlyDiv(Element element) {
-        if (element.getElementsByTag("div").size() > 0) {
-            return false;
-        }
-        if (element.children().isEmpty() && !element.text().isEmpty()) {
+        // Vérifier si c'est un élément vide avec du texte directement dedans
+        if (element.children().isEmpty() && !element.text().trim().isEmpty()) {
+            logger.debug("L'élément n'a pas d'enfants mais contient du texte: '{}', c'est un div de texte simple", element.text());
             return true;
         }
-        return element.children().isEmpty() ||
+        // Vérifier si tous les enfants sont des éléments de formatage de texte
+        boolean allChildrenAreTextElements = !element.children().isEmpty() &&
                 element.children().stream().allMatch(this::isTextElement);
+        if (allChildrenAreTextElements) {
+            logger.debug("Tous les enfants sont des éléments de formatage de texte, c'est un div de texte simple");
+            return true;
+        }
+        logger.debug("L'élément n'est pas un div contenant uniquement du texte");
+        return false;
     }
 
     private boolean isTextElement(Element element) {
@@ -404,9 +543,7 @@ public class RapportService {
         if (tagName.equals("div") && element.children().isEmpty() && !element.text().isEmpty()) {
             return true;
         }
-        return tagName.equals("span") ||
-                tagName.equals("p") ||
-                tagName.equals("strong") ||
+        return tagName.equals("strong") ||
                 tagName.equals("em") ||
                 tagName.equals("b") ||
                 tagName.equals("i");
@@ -431,15 +568,17 @@ public class RapportService {
 
     private void processElement(Element childElement, JRDesignFrame frame, String bandType, Map<String, String> computedStyles) {
         String tagName = childElement.tagName().toLowerCase();
-
+       
         switch (tagName) {
             case "span":
             case "p":
-                processTextElementInFrame(childElement, frame, bandType, computedStyles);
+                processTextElementInFrame(childElement, frame, bandType, computedStyles
+);
                 break;
 
             case "img":
-                processImageElementInFrame(childElement, frame, bandType, computedStyles);
+                processImageElementInFrame(childElement, frame, bandType, computedStyles
+);
                 break;
             case "h1":
             case "h2":
@@ -452,7 +591,8 @@ public class RapportService {
 
             case "div":
                 if (isSimpleTextDiv(childElement)) {
-                    processTextElementInFrame(childElement, frame, bandType, computedStyles);
+                    processTextElementInFrame(childElement, frame, bandType, computedStyles
+);
                 } else if (isTextOnlyDiv(childElement)) {
                     processTextElementInFrame(childElement, frame, bandType, computedStyles);
                 } else {
@@ -471,11 +611,44 @@ public class RapportService {
                 !element.text().isEmpty();
     }
 
-    private void processTextElementInFrame(Element element, JRDesignFrame frame, String bandType, Map<String, String> computedStyles) {
-        JRDesignTextField textField = new JRDesignTextField();
+
+    private void processNestedContainerElement(Element element, JRDesignFrame parentFrame, String bandType, Map<String, String> computedStyles) {
+        JRDesignFrame nestedFrame = new JRDesignFrame();
         Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, computedStyles);
 
-        JRDesignExpression expression = new JRDesignExpression();
+        nestedFrame.setX(position.get("x"));
+        nestedFrame.setY(position.get("y"));
+        nestedFrame.setWidth(position.get("width"));
+        nestedFrame.setHeight(position.get("height"));
+
+        applyStylesToFrame(nestedFrame, computedStyles);
+
+        for (Element childElement : element.children()) {
+
+            Map<String, String> childInheritedStyles = new HashMap<>(computedStyles);
+            Map<String, String> childElementStyles = cssService.getComputedStyles(childElement);
+            childInheritedStyles.putAll(childElementStyles);
+
+
+            if (childElement.tagName().equalsIgnoreCase("div") &&
+                    childElement.children().isEmpty() &&
+                    !childElement.text().isEmpty()) {
+
+                processTextElementInFrame(childElement, nestedFrame, bandType, childInheritedStyles);
+            } else {
+
+                processElement(childElement, nestedFrame, bandType, childInheritedStyles);
+            }
+        }
+
+        parentFrame.addElement(nestedFrame);
+    }
+
+
+   private void processTextElementInFrame(Element element, JRDesignFrame frame, String bandType, Map<String, String> computedStyles) {
+        JRDesignTextField textField = new JRDesignTextField();
+        Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, computedStyles);
+       JRDesignExpression expression = new JRDesignExpression();
         expression.setText("\"" + element.text().replace("\"", "\\\"") + "\"");
 
         textField.setExpression(expression);
@@ -549,56 +722,7 @@ public class RapportService {
             expression.setText("\"" + src + "\"");
             image.setExpression(expression);
         }
-
         frame.addElement(image);
-    }
-
-    private void processNestedContainerElement(Element element, JRDesignFrame parentFrame, String bandType, Map<String, String> computedStyles) {
-        JRDesignFrame nestedFrame = new JRDesignFrame();
-        Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, computedStyles);
-
-        nestedFrame.setX(position.get("x"));
-        nestedFrame.setY(position.get("y"));
-        nestedFrame.setWidth(position.get("width"));
-        nestedFrame.setHeight(position.get("height"));
-
-        applyStylesToFrame(nestedFrame, computedStyles);
-
-        for (Element childElement : element.children()) {
-
-            Map<String, String> childInheritedStyles = new HashMap<>(computedStyles);
-            Map<String, String> childElementStyles = cssService.getComputedStyles(childElement);
-            childInheritedStyles.putAll(childElementStyles);
-
-
-            if (childElement.tagName().equalsIgnoreCase("div") &&
-                    childElement.children().isEmpty() &&
-                    !childElement.text().isEmpty()) {
-
-                processTextElementInFrame(childElement, nestedFrame, bandType, childInheritedStyles);
-            } else {
-
-                processElement(childElement, nestedFrame, bandType, childInheritedStyles);
-            }
-        }
-
-        parentFrame.addElement(nestedFrame);
-    }
-
-    private Map<String, String> filterBorderStyles(Map<String, String> computedStyles, Map<String, String> childComputedStyles, Map<String, String> childExplicitStyles) {
-        Map<String, String> filteredStyles = new HashMap<>(childComputedStyles);
-        List<String> borderProperties = Arrays.asList(
-                "border", "border-top", "border-right", "border-bottom", "border-left",
-                "border-width", "border-style", "border-color"
-        );
-
-        for (String property : borderProperties) {
-
-            if (!childExplicitStyles.containsKey(property) && childComputedStyles.containsKey(property)) {
-                filteredStyles.remove(property);
-            }
-        }
-        return filteredStyles;
     }
 
 }

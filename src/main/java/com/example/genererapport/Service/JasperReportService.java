@@ -11,7 +11,8 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 @Service
-public class JasperReportService {
+public class
+JasperReportService {
     @Autowired
     private CssService cssService;
     @Autowired

@@ -12,61 +12,92 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+
 @RestController
-@RequestMapping("/css")
+@RequestMapping("/api/css")
 public class CssController {
-/*
+
     @Autowired
     private CssService cssService;
 
-    @PostMapping("/apply")
-    public ResponseEntity<?> applyCssToElement(@RequestBody XhtmlRequest request) {
+    @PostMapping("/extract")
+    public ResponseEntity<?> extractCss(@RequestBody XhtmlRequest request) {
         try {
-            // Validation des paramètres d'entrée
-            if (request == null ||
-                    request.getHtmlContent() == null ||
-                    request.getHtmlContent().isEmpty() ||
-                    request.getSelector() == null ||
-                    request.getSelector().isEmpty()) {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Invalid request parameters"));
-            }
+            // Analyse du contenu XHTML
+            Document doc = Jsoup.parse(request.getXhtmlContent());
 
-            // Charger le document HTML
-            Document document = Jsoup.parse(request.getHtmlContent());
+            // Extraction de tous les styles CSS
+            Map<String, Map<String, String>> allCssRules =
+                    cssService.extractAllCssFromDocument(doc, request.getBasePath());
 
-            // Extraire les règles CSS
-            Map<String, Map<String, String>> cssRules = cssService.extractAllCssFromDocument(
-                    document,
-                    request.getBasePath() != null ? request.getBasePath() : ""
-            );
+            // Retourne la map des styles CSS extraites
+            return ResponseEntity.ok(allCssRules);
 
-            // Trouver l'élément par son sélecteur
-            Element element = document.select(request.getSelector()).first();
-
-            if (element != null) {
-                // Récupérer les styles calculés pour l'élément
-                Map<String, String> computedStyles = cssService.getComputedStyles(element);
-
-                // Ajouter les informations supplémentaires si nécessaire
-                Map<String, Object> response = new HashMap<>();
-                response.put("computedStyles", computedStyles);
-                response.put("cssRules", cssRules);
-
-                return ResponseEntity.ok(response);
-            } else {
-                return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Element not found for selector: " + request.getSelector()));
-            }
         } catch (Exception e) {
-            // Log de l'erreur (à ajouter avec un logger)
-            return ResponseEntity.internalServerError()
-                    .body(Map.of(
-                            "error", "Internal server error",
-                            "details", e.getMessage()
-                    ));
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
-    }*/
+    }
+
+    @PostMapping("/test/explicit-styles")
+    public ResponseEntity<?> testExplicitStyles(@RequestBody XhtmlRequest request) {
+        try {
+            // Analyse du contenu XHTML
+            Document doc = Jsoup.parse(request.getXhtmlContent());
+
+            // Extraction de tous les styles CSS
+            cssService.extractAllCssFromDocument(doc, request.getBasePath());
+
+            // Récupérer l'élément spécifié par le sélecteur
+            Element element = doc.selectFirst(request.getSelector());
+            if (element == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Sélecteur non trouvé: " + request.getSelector()));
+            }
+
+            // Obtenir les styles explicites pour cet élément
+            Map<String, String> explicitStyles = cssService.getExplicitStyles(element);
+
+            // Retourne la map des styles explicites
+            return ResponseEntity.ok(Map.of(
+                    "selector", request.getSelector(),
+                    "styles", explicitStyles
+            ));
+
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/test/computed-styles")
+    public ResponseEntity<?> testComputedStyles(@RequestBody XhtmlRequest request) {
+        try {
+            // Analyse du contenu XHTML
+            Document doc = Jsoup.parse(request.getXhtmlContent());
+
+            // Extraction de tous les styles CSS
+            cssService.extractAllCssFromDocument(doc, request.getBasePath());
+
+            // Récupérer l'élément spécifié par le sélecteur
+            Element element = doc.selectFirst(request.getSelector());
+            if (element == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Sélecteur non trouvé: " + request.getSelector()));
+            }
+
+            // Obtenir les styles calculés pour cet élément
+            Map<String, String> computedStyles = cssService.getComputedStyles(element);
+
+            // Retourne la map des styles calculés
+            return ResponseEntity.ok(Map.of(
+                    "selector", request.getSelector(),
+                    "computedStyles", computedStyles
+            ));
+
+        } catch (Exception e) {
+
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }
+    
