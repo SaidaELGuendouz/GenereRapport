@@ -19,12 +19,11 @@ JasperReportService {
     private ConvertCssToJasperService convertCssToJasperService;
 
     private static final Logger logger = LoggerFactory.getLogger(JasperReportService.class);
-    private JasperDesign jasperDesign;
 
     public String createEmptyJrxmlDocument() {
         try {
 
-            jasperDesign = new JasperDesign();
+            JasperDesign jasperDesign = new JasperDesign();
 
             jasperDesign.setName("XhtmlTojasperReport");
             jasperDesign.setPageWidth(595);

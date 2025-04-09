@@ -18,11 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
-import java.util.stream.Collectors;
 @Service
 public class CssService {
     private static final Logger logger = LoggerFactory.getLogger(CssService.class);
@@ -64,10 +62,9 @@ public class CssService {
            CSSRuleList ruleList = stylesheet.getCssRules();
            for (int i = 0; i < ruleList.getLength(); i++) {
                CSSRule rule = ruleList.item(i);
-               if (rule instanceof CSSStyleRule) {
-                   CSSStyleRule styleRule = (CSSStyleRule) rule;
+               if (rule instanceof CSSStyleRule styleRule) {
                    String selectorText = styleRule.getSelectorText();
-                   logger.info("CSSRule: " + rule.getCssText());
+                   logger.info("CSSRule: {}", rule.getCssText());
 
                    for (String selector : selectorText.split(",")) {
                        selector = selector.trim();
@@ -107,12 +104,12 @@ public class CssService {
             if (!href.isEmpty()) {
                 try {
                     String cssContent = loadExternalCss(href);
-                    if (cssContent != null && !cssContent.isEmpty()) {
+                    if (!cssContent.isEmpty()) {
                         parseCssContent(cssContent);
-                        logger.debug("CSS externe chargé depuis: " + href);
+                        logger.debug("CSS externe chargé depuis: {}", href);
                     }
                 }catch (Exception e) {
-                    logger.warn("Impossible de charger le CSS externe: " + href, e, Level.WARNING);
+                    logger.warn("Impossible de charger le CSS externe: {}", href, e, Level.WARNING);
                 }
             }
         }
@@ -330,6 +327,7 @@ public class CssService {
 
             try {
 
+                assert doc != null;
                 Elements matchingElements = doc.select(selector);
 
                 // Vérifier si notre élément est dans les résultats

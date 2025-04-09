@@ -1,6 +1,6 @@
 package com.example.genererapport.Service;
 import com.example.genererapport.Enum.LineDirection;
-import com.example.genererapport.Model.ColorExtraction;
+
 import net.sf.jasperreports.engine.JRLineBox;
 import net.sf.jasperreports.engine.JRPen;
 import net.sf.jasperreports.engine.design.JRDesignFrame;
@@ -303,7 +303,7 @@ public class ConvertCssToJasperService {
         Pattern colorPattern = Pattern.compile("(rgb\\s*\\([^)]+\\)|rgba\\s*\\([^)]+\\)|#[0-9a-fA-F]{3,6})");
         Matcher matcher = colorPattern.matcher(workingValue);
 
-        StringBuffer sb = new StringBuffer();
+        StringBuilder sb = new StringBuilder();
         while (matcher.find()) {
             String colorMatch = matcher.group();
             String placeholder = "COLOR_PLACEHOLDER_" + placeholderCount++;
@@ -315,11 +315,7 @@ public class ConvertCssToJasperService {
         String[] parts = workingValue.trim().split("\\s+");
 
         for (String part : parts) {
-            if (placeholders.containsKey(part)) {
-                colorValues.add(placeholders.get(part));
-            } else {
-                colorValues.add(part);
-            }
+            colorValues.add(placeholders.getOrDefault(part, part));
         }
          if (colorValues.size() == 1) {
             String color = convertColorToHex(colorValues.get(0));
@@ -344,31 +340,22 @@ public class ConvertCssToJasperService {
         return Map.entry("borderColor", "#000000,#000000,#000000,#000000");
     }
     private String convertHorizontalAlignment(String cssAlignment) {
-        switch (cssAlignment.toLowerCase().trim()) {
-            case "left":
-                return "Left";
-            case "center":
-                return "Center";
-            case "right":
-                return "Right";
-            case "justify":
-                return "Justified";
-            default:
-                return "Left";
-        }
+        return switch (cssAlignment.toLowerCase().trim()) {
+            case "left" -> "Left";
+            case "center" -> "Center";
+            case "right" -> "Right";
+            case "justify" -> "Justified";
+            default -> "Left";
+        };
     }
 
     private String convertVerticalAlignment(String align) {
-        switch (align.toLowerCase()) {
-            case "top":
-                return "Top";
-            case "middle":
-                return "Middle";
-            case "bottom":
-                return "Bottom";
-            default:
-                return "Top";
-        }
+        return switch (align.toLowerCase()) {
+            case "top" -> "Top";
+            case "middle" -> "Middle";
+            case "bottom" -> "Bottom";
+            default -> "Top";
+        };
     }
     private Map.Entry<String, String> handleBorderStyleShorthand(String value) {
         String[] values = value.trim().split("\\s+");
@@ -430,23 +417,7 @@ public class ConvertCssToJasperService {
 
         color = color.trim().toLowerCase();
 
-        // Gestion des couleurs nommées
-        Map<String, String> namedColors = new HashMap<>();
-        namedColors.put("black", "#000000");
-        namedColors.put("white", "#FFFFFF");
-        namedColors.put("red", "#FF0000");
-        namedColors.put("green", "#008000");
-        namedColors.put("blue", "#0000FF");
-        namedColors.put("yellow", "#FFFF00");
-        namedColors.put("cyan", "#00FFFF");
-        namedColors.put("magenta", "#FF00FF");
-        namedColors.put("silver", "#C0C0C0");
-        namedColors.put("gray", "#808080");
-        namedColors.put("maroon", "#800000");
-        namedColors.put("olive", "#808000");
-        namedColors.put("purple", "#800080");
-        namedColors.put("teal", "#008080");
-        namedColors.put("navy", "#000080");
+        Map<String, String> namedColors = getNamedColors();
 
         if (namedColors.containsKey(color)) {
             return namedColors.get(color);
@@ -515,6 +486,27 @@ public class ConvertCssToJasperService {
         logger.warn("Format de couleur non reconnu: {}", color);
         return "#000000";
     }
+
+    private static Map<String, String> getNamedColors() {
+        Map<String, String> namedColors = new HashMap<>();
+        namedColors.put("black", "#000000");
+        namedColors.put("white", "#FFFFFF");
+        namedColors.put("red", "#FF0000");
+        namedColors.put("green", "#008000");
+        namedColors.put("blue", "#0000FF");
+        namedColors.put("yellow", "#FFFF00");
+        namedColors.put("cyan", "#00FFFF");
+        namedColors.put("magenta", "#FF00FF");
+        namedColors.put("silver", "#C0C0C0");
+        namedColors.put("gray", "#808080");
+        namedColors.put("maroon", "#800000");
+        namedColors.put("olive", "#808000");
+        namedColors.put("purple", "#800080");
+        namedColors.put("teal", "#008080");
+        namedColors.put("navy", "#000080");
+        return namedColors;
+    }
+
     int convertCssValueToPixels(String cssValue) {
         if (cssValue == null || cssValue.trim().isEmpty()) {
             return 0;
@@ -527,10 +519,11 @@ public class ConvertCssToJasperService {
             }
         }
 
+        float parseFloat = Float.parseFloat(cssValue.substring(0, cssValue.length() - 2));
         if (cssValue.endsWith("pt")) {
             try {
                 // Conversion approximative de points en pixels (1pt ≈ 1.33px)
-                return (int) (Float.parseFloat(cssValue.substring(0, cssValue.length() - 2)) * 1.33);
+                return (int) (parseFloat * 1.33);
             } catch (NumberFormatException e) {
                 return 0;
             }
@@ -538,7 +531,7 @@ public class ConvertCssToJasperService {
 
         if (cssValue.endsWith("em") || cssValue.endsWith("rem")) {
             try {
-                return (int) (Float.parseFloat(cssValue.substring(0, cssValue.length() - 2)) * 16);
+                return (int) (parseFloat * 16);
             } catch (NumberFormatException e) {
                 return 0;
             }
@@ -548,24 +541,16 @@ public class ConvertCssToJasperService {
             return Integer.parseInt(cssValue);
         } catch (NumberFormatException e) {
 
-            switch (cssValue.toLowerCase()) {
-                case "xx-small":
-                    return 8;
-                case "x-small":
-                    return 10;
-                case "small":
-                    return 12;
-                case "medium":
-                    return 16;
-                case "large":
-                    return 18;
-                case "x-large":
-                    return 24;
-                case "xx-large":
-                    return 32;
-                default:
-                    return 0;
-            }
+            return switch (cssValue.toLowerCase()) {
+                case "xx-small" -> 8;
+                case "x-small" -> 10;
+                case "small" -> 12;
+                case "medium" -> 16;
+                case "large" -> 18;
+                case "x-large" -> 24;
+                case "xx-large" -> 32;
+                default -> 0;
+            };
         }
     }
 

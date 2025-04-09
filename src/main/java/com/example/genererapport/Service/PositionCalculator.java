@@ -13,7 +13,7 @@ public class PositionCalculator {
     private ConvertCssToJasperService convertCssToJasperService;
     @Autowired
     private CssService cssService;
-    private Map<String, Map<String, Integer>> elementPositions = new HashMap<>();
+    private final Map<String, Map<String, Integer>> elementPositions = new HashMap<>();
 
     Map<String, Integer> calculatePositionAndSize(Element element, Map<String, String> computedStyles) {
         Map<String, Integer> result = new HashMap<>();

@@ -10,31 +10,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import net.sf.jasperreports.engine.JRException;
-import net.sf.jasperreports.engine.JRFrame;
 import net.sf.jasperreports.engine.design.*;
-import net.sf.jasperreports.engine.type.HorizontalTextAlignEnum;
-import net.sf.jasperreports.engine.type.ModeEnum;
-import net.sf.jasperreports.engine.type.VerticalTextAlignEnum;
-import net.sf.jasperreports.engine.xml.JRXmlWriter;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import net.sf.jasperreports.engine.JRElement;
-import java.util.List;  // Correct
-
-import java.awt.*;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -393,10 +373,7 @@ public class RapportService {
         band.addElement(staticText);
 
     }
-
-
-    private void processElement(Element element, JRDesignBand band, String bandType, Map<String, String> computedStyles, boolean isHeader) {
-        logger.info("Traitement de l'élément {} pour la bande {} - type: {}", element.tagName(), bandType, isHeader ? "Header" : "Texte");
+    private Set<String> extractAndProcessVariables(Element element) {
         Set<String> variables = jasperReportVariableExtractorService.extractVariables(element);
         if (!variables.isEmpty()) {
             try {
@@ -407,58 +384,78 @@ public class RapportService {
                 logger.error("Erreur lors de l'ajout des paramètres", e);
             }
         }
+        return variables;
+    }
 
-
+    private JRDesignTextField createTextField(Element element, Map<String, String> computedStyles, boolean isHeader, Set<String> variables) {
         JRDesignTextField textField = new JRDesignTextField();
-        Map<String, String> mergedStyles = new HashMap<>();
 
-        if (computedStyles != null && !computedStyles.isEmpty()) {
-            mergedStyles.putAll(computedStyles);
-        }
-        if (isHeader) {
-            int fontSize = 18;
-            switch (element.tagName()) {
-                case "h1":
-                    fontSize = 20;
-                    break;
-                case "h2":
-                    fontSize = 16;
-                    break;
-                case "h3":
-                    fontSize = 14;
-                    break;
-                case "h4":
-                    fontSize = 12;
-                    break;
-                case "h5":
-                    fontSize = 11;
-                    break;
-                case "h6":
-                    fontSize = 10;
-                    break;
-            }
-            if (!mergedStyles.containsKey("font-size")) {
-                mergedStyles.put("font-size", fontSize + "px");
-            }
-            if (!mergedStyles.containsKey("font-weight")) {
-                mergedStyles.put("font-weight", "bold");
-            }
-        }
+        // Fusion des styles
+        Map<String, String> mergedStyles = mergeStyles(element, computedStyles, isHeader);
 
+        // Calcul de la position et des dimensions
         Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, mergedStyles);
+
+        // Configuration de l'expression
         JRDesignExpression expression = new JRDesignExpression();
         String sanitizedText = sanitizeText(element.text());
         expression.setText(JasperReportVariableExtractorService.getExpressionText(sanitizedText, variables));
-
         textField.setExpression(expression);
-        textField.setStretchWithOverflow(true);
 
+        // Configuration des propriétés du TextField
+        textField.setStretchWithOverflow(true);
         textField.setX(position.get("x"));
         textField.setY(position.get("y"));
         textField.setWidth(position.get("width"));
         textField.setHeight(position.get("height"));
 
+        // Application des styles
         applyStylesToTextField(textField, mergedStyles);
+
+        return textField;
+    }
+
+
+    //// Fusionne les styles existants avec les styles spécifiques pour les headers
+
+    private Map<String, String> mergeStyles(Element element, Map<String, String> computedStyles, boolean isHeader) {
+        Map<String, String> mergedStyles = new HashMap<>();
+
+        if (computedStyles != null && !computedStyles.isEmpty()) {
+            mergedStyles.putAll(computedStyles);
+        }
+
+        if (isHeader) {
+            applyHeaderStyles(element, mergedStyles);
+        }
+
+        return mergedStyles;
+    }
+
+    private void applyHeaderStyles(Element element, Map<String, String> styles) {
+        int fontSize = switch (element.tagName()) {
+            case "h1" -> 20;
+            case "h2" -> 16;
+            case "h3" -> 14;
+            case "h4" -> 12;
+            case "h5" -> 11;
+            case "h6" -> 10;
+            default -> 18;
+        };
+
+        if (!styles.containsKey("font-size")) {
+            styles.put("font-size", fontSize + "px");
+        }
+
+        if (!styles.containsKey("font-weight")) {
+            styles.put("font-weight", "bold");
+        }
+    }
+    private void processElement(Element element, JRDesignBand band, String bandType, Map<String, String> computedStyles, boolean isHeader) {
+        logger.info("Traitement de l'élément {} pour la bande {} - type: {}", element.tagName(), bandType, isHeader ? "Header" : "Texte");
+        Set<String> variables = extractAndProcessVariables(element);
+
+        JRDesignTextField textField = createTextField(element, computedStyles, isHeader, variables);
 
         band.addElement(textField);
     }
@@ -488,7 +485,7 @@ public class RapportService {
 
 
         String src = element.attr("src");
-        if (src != null && !src.isEmpty()) {
+        if (!src.isEmpty()) {
 
             JRDesignExpression expression = new JRDesignExpression();
             expression.setText("\"" + src + "\"");
@@ -663,33 +660,7 @@ public class RapportService {
     }
 
     private void processHeaderElementInFrame(Element element, JRDesignFrame frame, String bandType, Map<String, String> computedStyles) {
-        int fontSize = 18;
-        switch (element.tagName()) {
-            case "h1":
-                fontSize = 20;
-                break;
-            case "h2":
-                fontSize = 16;
-                break;
-            case "h3":
-                fontSize = 14;
-                break;
-            case "h4":
-                fontSize = 12;
-                break;
-            case "h5":
-                fontSize = 11;
-                break;
-            case "h6":
-                fontSize = 10;
-                break;
-        }
-        if (computedStyles.containsKey("font-size")) {
-            computedStyles.put("font-size", fontSize + "px");
-        }
-        if (computedStyles.containsKey("font-weight")) {
-            computedStyles.put("font-weight", "bold");
-        }
+       applyHeaderStyles(element, computedStyles);
         JRDesignTextField textField = new JRDesignTextField();
         Map<String, Integer> position = positionCalculator.calculatePositionAndSize(element, computedStyles);
 
@@ -717,7 +688,7 @@ public class RapportService {
         image.setHeight(position.get("height"));
 
         String src = element.attr("src");
-        if (src != null && !src.isEmpty()) {
+        if (!src.isEmpty()) {
             JRDesignExpression expression = new JRDesignExpression();
             expression.setText("\"" + src + "\"");
             image.setExpression(expression);
